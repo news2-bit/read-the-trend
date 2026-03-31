@@ -99,15 +99,24 @@ function setCountry(code, detected) {
 }
 
 async function fetchTrends(geo) {
-  const url = encodeURIComponent(TRENDS_RSS(geo));
-  const res = await fetch(`${PROXY}${url}`);
-  if (!res.ok) throw new Error(`Failed to fetch trends (HTTP ${res.status})`);
-  const text = await res.text();
-  const parser = new DOMParser();
-  const xml = parser.parseFromString(text, 'application/xml');
-  const parseErr = xml.querySelector('parsererror');
-  if (parseErr) throw new Error('Could not parse trends data.');
-  return xml.querySelectorAll('item');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const url = encodeURIComponent(TRENDS_RSS(geo));
+    const res = await fetch(`${PROXY}${url}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Failed to fetch trends (HTTP ${res.status})`);
+    const text = await res.text();
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(text, 'application/xml');
+    const parseErr = xml.querySelector('parsererror');
+    if (parseErr) throw new Error('Could not parse trends data.');
+    return xml.querySelectorAll('item');
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Request timed out. Try refreshing.');
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function getText(el, tag, ns) {
@@ -143,7 +152,7 @@ async function summarizeTrend(trend, card) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'openai',
+        model: 'perplexity-fast',
         messages: [{ role: 'user', content: prompt }]
       })
     });
